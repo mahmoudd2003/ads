@@ -1,4 +1,16 @@
+import sys
+from pathlib import Path
 
+# --- Fix ModuleNotFoundError: add project root & src to sys.path ---
+PROJECT_ROOT = Path(__file__).resolve().parent
+SRC_DIR = PROJECT_ROOT / "src"
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+if SRC_DIR.exists() and str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+# --- Imports after fixing sys.path ---
 import streamlit as st
 import pandas as pd
 
@@ -9,14 +21,17 @@ from src.processing.normalize import normalize_ads
 from src.ai.llm_analyzer import analyze_batches
 from src.processing.scoring import score_gap
 
+# --- Streamlit UI ---
 st.set_page_config(page_title="Gap Analysis MVP", page_icon="📊", layout="wide")
 st.title("📊 Gap Analysis – MVP (Meta + Google Trends + TikTok)")
 
 with st.sidebar:
-    country = st.selectbox("Country", ["JO","SA","AE","EG"], index=0)
-    sector = st.selectbox("Sector", ["Furniture","Electronics","Fashion","Food"])
-    seeds = st.text_area("Seed keywords (one per line)",
-                         value="كنب\nسرير مع تخزين\nمراتب طبية\nطاولة قابلة للطي")
+    country = st.selectbox("Country", ["JO", "SA", "AE", "EG"], index=0)
+    sector = st.selectbox("Sector", ["Furniture", "Electronics", "Fashion", "Food"])
+    seeds = st.text_area(
+        "Seed keywords (one per line)",
+        value="كنب\nسرير مع تخزين\nمراتب طبية\nطاولة قابلة للطي"
+    )
     max_ads = st.slider("Max ads per keyword", 50, 500, 200, 50)
     run = st.button("Run Analysis")
 
@@ -47,6 +62,11 @@ if run:
     st.subheader("Top Gap Opportunities")
     if result is not None and not result.empty:
         st.dataframe(result.sort_values("gap_score", ascending=False).head(25))
-        st.download_button("Download CSV", result.to_csv(index=False), "gap_opportunities.csv", "text/csv")
+        st.download_button(
+            "Download CSV",
+            result.to_csv(index=False),
+            "gap_opportunities.csv",
+            "text/csv"
+        )
     else:
         st.info("No results to show yet. Try increasing keywords or ads limit.")
