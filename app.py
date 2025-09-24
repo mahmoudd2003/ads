@@ -1,58 +1,68 @@
-# ---------------- PATH FIX (robust) ----------------
+# ===== Robust path + dynamic import =====
 import sys
 from pathlib import Path
+import importlib.util
+import streamlit as st
+import pandas as pd
 
 APP_DIR = Path(__file__).resolve().parent
-CANDIDATE_PATHS = [
-    APP_DIR,                      # …/ads/
-    APP_DIR / "src",             # …/ads/src
-    APP_DIR.parent,              # …/
-    APP_DIR.parent / "src",      # …/src
-]
 
+# جرّب مسارات شائعة لإضافة src إلى sys.path
+CANDIDATE_PATHS = [
+    APP_DIR,                  # …/ads
+    APP_DIR / "src",         # …/ads/src
+    APP_DIR.parent,          # …
+    APP_DIR.parent / "src",  # …/src
+]
 for p in CANDIDATE_PATHS:
     if p.exists():
         sp = str(p)
         if sp not in sys.path:
             sys.path.insert(0, sp)
 
-# ------------- Imports (after fixing path) -------------
-import streamlit as st
-import pandas as pd
+def import_or_load(module_name: str, file_rel: str):
+    """
+    جرّب import بالحِزمة؛ ولو فشل، حمّل الملف مباشرة من المسار النسبي.
+    """
+    try:
+        return __import__(module_name, fromlist=['*'])
+    except Exception:
+        f = APP_DIR / file_rel
+        if not f.exists():
+            st.error(f"❌ لم أجد الملف: {f}")
+            st.write("تحقّق من الأسماء بالضبط (case-sensitive) ومن وجود __init__.py")
+            st.stop()
+        spec = importlib.util.spec_from_file_location(module_name.split(".")[-1], f)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
 
-# محاولة أولى للاستيراد مع تشخيص إذا فشل
-try:
-    from src.collectors.meta_ads import fetch_ads_by_keywords
-    from src.collectors.trends import fetch_trends_scores
-    from src.collectors.tiktok_ads import fetch_tiktok_ads
-    from src.processing.normalize import normalize_ads
-    from src.ai.llm_analyzer import analyze_batches
-    from src.processing.scoring import score_gap
-except ModuleNotFoundError as e:
-    st.error(
-        "❌ لم أستطع العثور على حزمة `src`. تأكد من أن مجلد `src/` موجود "
-        "إمّا بجانب `app.py` أو في جذر المستودع. أيضًا تأكد من وجود ملفات "
-        "`__init__.py` داخل `src/` وداخل مجلداته الفرعية (`collectors/`, `processing/`, `ai/`)."
-    )
-    # تشخيص سريع: عرض بنية المجلدات القريبة
-    st.write("🔎 مسار التطبيق:", str(APP_DIR))
-    st.write("📁 موجود؟ ads/src:", (APP_DIR / "src").exists())
-    st.write("📁 موجود؟ ../src :", (APP_DIR.parent / "src").exists())
-    st.stop()
+# === استيراد الوحدات (مع fallback مباشر من الملفات) ===
+meta_ads     = import_or_load("src.collectors.meta_ads",     "src/collectors/meta_ads.py")
+trends_mod   = import_or_load("src.collectors.trends",       "src/collectors/trends.py")
+tiktok_mod   = import_or_load("src.collectors.tiktok_ads",   "src/collectors/tiktok_ads.py")
+normalize_mod= import_or_load("src.processing.normalize",    "src/processing/normalize.py")
+scoring_mod  = import_or_load("src.processing.scoring",      "src/processing/scoring.py")
+ai_mod       = import_or_load("src.ai.llm_analyzer",         "src/ai/llm_analyzer.py")
 
-# ---------------- Streamlit UI ----------------
+fetch_ads_by_keywords = meta_ads.fetch_ads_by_keywords
+fetch_trends_scores   = trends_mod.fetch_trends_scores
+fetch_tiktok_ads      = tiktok_mod.fetch_tiktok_ads
+normalize_ads         = normalize_mod.normalize_ads
+score_gap             = scoring_mod.score_gap
+analyze_batches       = ai_mod.analyze_batches
+
+# ===== UI =====
 st.set_page_config(page_title="Gap Analysis MVP", page_icon="📊", layout="wide")
 st.title("📊 Gap Analysis – MVP (Meta + Google Trends + TikTok)")
 
 with st.sidebar:
     country = st.selectbox("Country", ["JO", "SA", "AE", "EG"], index=0)
-    sector = st.selectbox("Sector", ["Furniture", "Electronics", "Fashion", "Food"])
-    seeds = st.text_area(
-        "Seed keywords (one per line)",
-        value="كنب\nسرير مع تخزين\nمراتب طبية\nطاولة قابلة للطي"
-    )
+    sector  = st.selectbox("Sector",  ["Furniture","Electronics","Fashion","Food"])
+    seeds   = st.text_area("Seed keywords (one per line)",
+                           value="كنب\nسرير مع تخزين\nمراتب طبية\nطاولة قابلة للطي")
     max_ads = st.slider("Max ads per keyword", 50, 500, 200, 50)
-    run = st.button("Run Analysis")
+    run     = st.button("Run Analysis")
 
 if run:
     kw_list = [s.strip() for s in seeds.splitlines() if s.strip()]
@@ -81,11 +91,8 @@ if run:
     st.subheader("Top Gap Opportunities")
     if result is not None and not result.empty:
         st.dataframe(result.sort_values("gap_score", ascending=False).head(25))
-        st.download_button(
-            "Download CSV",
-            result.to_csv(index=False),
-            "gap_opportunities.csv",
-            "text/csv"
-        )
+        st.download_button("Download CSV",
+                           result.to_csv(index=False),
+                           "gap_opportunities.csv", "text/csv")
     else:
         st.info("No results to show yet. Try increasing keywords or ads limit.")
