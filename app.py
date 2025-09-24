@@ -1,27 +1,46 @@
+# ---------------- PATH FIX (robust) ----------------
 import sys
 from pathlib import Path
 
-# --- Fix ModuleNotFoundError: add project root & src to sys.path ---
-PROJECT_ROOT = Path(__file__).resolve().parent
-SRC_DIR = PROJECT_ROOT / "src"
+APP_DIR = Path(__file__).resolve().parent
+CANDIDATE_PATHS = [
+    APP_DIR,                      # …/ads/
+    APP_DIR / "src",             # …/ads/src
+    APP_DIR.parent,              # …/
+    APP_DIR.parent / "src",      # …/src
+]
 
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-if SRC_DIR.exists() and str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+for p in CANDIDATE_PATHS:
+    if p.exists():
+        sp = str(p)
+        if sp not in sys.path:
+            sys.path.insert(0, sp)
 
-# --- Imports after fixing sys.path ---
+# ------------- Imports (after fixing path) -------------
 import streamlit as st
 import pandas as pd
 
-from src.collectors.meta_ads import fetch_ads_by_keywords
-from src.collectors.trends import fetch_trends_scores
-from src.collectors.tiktok_ads import fetch_tiktok_ads
-from src.processing.normalize import normalize_ads
-from src.ai.llm_analyzer import analyze_batches
-from src.processing.scoring import score_gap
+# محاولة أولى للاستيراد مع تشخيص إذا فشل
+try:
+    from src.collectors.meta_ads import fetch_ads_by_keywords
+    from src.collectors.trends import fetch_trends_scores
+    from src.collectors.tiktok_ads import fetch_tiktok_ads
+    from src.processing.normalize import normalize_ads
+    from src.ai.llm_analyzer import analyze_batches
+    from src.processing.scoring import score_gap
+except ModuleNotFoundError as e:
+    st.error(
+        "❌ لم أستطع العثور على حزمة `src`. تأكد من أن مجلد `src/` موجود "
+        "إمّا بجانب `app.py` أو في جذر المستودع. أيضًا تأكد من وجود ملفات "
+        "`__init__.py` داخل `src/` وداخل مجلداته الفرعية (`collectors/`, `processing/`, `ai/`)."
+    )
+    # تشخيص سريع: عرض بنية المجلدات القريبة
+    st.write("🔎 مسار التطبيق:", str(APP_DIR))
+    st.write("📁 موجود؟ ads/src:", (APP_DIR / "src").exists())
+    st.write("📁 موجود؟ ../src :", (APP_DIR.parent / "src").exists())
+    st.stop()
 
-# --- Streamlit UI ---
+# ---------------- Streamlit UI ----------------
 st.set_page_config(page_title="Gap Analysis MVP", page_icon="📊", layout="wide")
 st.title("📊 Gap Analysis – MVP (Meta + Google Trends + TikTok)")
 
